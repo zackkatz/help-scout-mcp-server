@@ -114,8 +114,8 @@ export const GetHappinessReportInputSchema = BaseReportSchema.extend({
     .describe('Filter by specific tag IDs'),
   types: z.array(z.enum(['email', 'chat', 'phone'])).optional()
     .describe('Filter by conversation types'),
-  rating: z.array(z.enum(['great', 'okay', 'bad'])).optional()
-    .describe('Filter by specific ratings'),
+  rating: z.array(z.enum(['great', 'ok', 'not-good'])).optional()
+    .describe('Filter by specific ratings (note: API uses "ok" and "not-good", not "okay" and "bad")'),
   viewBy: z.enum(['day', 'week', 'month']).optional()
     .describe('Group results by time period'),
 });
@@ -243,7 +243,7 @@ export interface HappinessReportResponse extends BaseReportResponse {
   };
   ratings?: Array<{
     id: string;
-    rating: 'great' | 'okay' | 'bad';
+    rating: 'great' | 'ok' | 'not-good';
     customerName: string;
     customerEmail: string;
     conversationId: string;
@@ -621,7 +621,7 @@ export class ReportsToolHandler extends Injectable {
       },
       {
         name: 'getHappinessReport',
-        description: 'Get Help Scout happiness ratings report with customer satisfaction scores and feedback. Requires Plus or Pro plan.',
+        description: 'Get Help Scout overall happiness report with aggregate satisfaction scores. Requires Plus or Pro plan.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -672,14 +672,78 @@ export class ReportsToolHandler extends Injectable {
               type: 'array',
               items: {
                 type: 'string',
-                enum: ['great', 'okay', 'bad'],
+                enum: ['great', 'ok', 'not-good'],
               },
-              description: 'Filter by specific ratings',
+              description: 'Filter by specific ratings (note: API uses "ok" and "not-good")',
             },
             viewBy: {
               type: 'string',
               enum: ['day', 'week', 'month'],
               description: 'Group results by time period',
+            },
+          },
+          required: ['start', 'end'],
+        },
+      },
+      {
+        name: 'getHappinessRatings',
+        description: 'Get individual Help Scout happiness ratings with customer feedback and comments. Requires Plus or Pro plan.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            start: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Start date for the report period (ISO 8601)',
+            },
+            end: {
+              type: 'string',
+              format: 'date-time',
+              description: 'End date for the report period (ISO 8601)',
+            },
+            mailboxes: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by specific mailbox IDs',
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by specific tag IDs',
+            },
+            types: {
+              type: 'array',
+              items: { 
+                type: 'string',
+                enum: ['email', 'chat', 'phone'],
+              },
+              description: 'Filter by conversation types',
+            },
+            rating: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['great', 'ok', 'not-good', 'all'],
+              },
+              description: 'Filter by specific ratings (note: uses ok and not-good instead of okay and bad)',
+            },
+            page: {
+              type: 'number',
+              minimum: 1,
+              default: 1,
+              description: 'Page number for pagination',
+            },
+            sortField: {
+              type: 'string',
+              enum: ['rating', 'createdAt', 'modifiedAt'],
+              default: 'createdAt',
+              description: 'Field to sort by',
+            },
+            sortOrder: {
+              type: 'string',
+              enum: ['asc', 'desc'],
+              default: 'desc',
+              description: 'Sort order',
             },
           },
           required: ['start', 'end'],
@@ -762,6 +826,9 @@ export class ReportsToolHandler extends Injectable {
           break;
         case 'getHappinessReport':
           result = await this.getHappinessReport(request.params.arguments || {});
+          break;
+        case 'getHappinessRatings':
+          result = await this.getHappinessRatings(request.params.arguments || {});
           break;
         case 'getDocsReport':
           result = await this.getDocsReport(request.params.arguments || {});
@@ -1598,7 +1665,7 @@ export class ReportsToolHandler extends Injectable {
         params.viewBy = input.viewBy;
       }
 
-      // The happiness report endpoint
+      // The happiness report endpoint - overall statistics
       logger.info('Calling Help Scout Reports API for Happiness report', { endpoint: '/v2/reports/happiness', params });
       const response = await reportsApiClient.getReport<HappinessReportResponse>('/v2/reports/happiness', params);
 
@@ -1647,6 +1714,108 @@ export class ReportsToolHandler extends Injectable {
                 end: input.end,
                 mailboxes: input.mailboxes,
                 folders: input.folders,
+                tags: input.tags,
+                types: input.types,
+                rating: input.rating,
+              },
+            }, null, 2),
+          },
+        ],
+      };
+    }
+  }
+
+  private async getHappinessRatings(args: unknown): Promise<CallToolResult> {
+    const input = z.object({
+      start: z.string().datetime(),
+      end: z.string().datetime(),
+      mailboxes: z.array(z.string()).optional(),
+      tags: z.array(z.string()).optional(),
+      types: z.array(z.enum(['email', 'chat', 'phone'])).optional(),
+      rating: z.array(z.enum(['great', 'ok', 'not-good', 'all'])).optional(),
+      page: z.number().min(1).default(1),
+      sortField: z.enum(['rating', 'createdAt', 'modifiedAt']).default('createdAt'),
+      sortOrder: z.enum(['asc', 'desc']).default('desc'),
+    }).parse(args);
+    
+    const { reportsApiClient, logger } = this.services.resolve(['reportsApiClient', 'logger']);
+    
+    try {
+      // Build query parameters
+      const params: Record<string, unknown> = {
+        start: input.start,
+        end: input.end,
+        page: input.page,
+        sortField: input.sortField,
+        sortOrder: input.sortOrder,
+      };
+
+      if (input.mailboxes && input.mailboxes.length > 0) {
+        params.mailboxes = input.mailboxes.join(',');
+      }
+
+      if (input.tags && input.tags.length > 0) {
+        params.tags = input.tags.join(',');
+      }
+
+      if (input.types && input.types.length > 0) {
+        params.types = input.types.join(',');
+      }
+
+      if (input.rating && input.rating.length > 0) {
+        params.rating = input.rating.join(',');
+      }
+
+      // The happiness ratings endpoint for individual ratings
+      logger.info('Calling Help Scout Reports API for Happiness ratings', { endpoint: '/v2/reports/happiness/ratings', params });
+      const response = await reportsApiClient.getReport<any>('/v2/reports/happiness/ratings', params);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              ratings: response,
+              filters: {
+                mailboxes: input.mailboxes,
+                tags: input.tags,
+                types: input.types,
+                rating: input.rating,
+              },
+              period: {
+                start: input.start,
+                end: input.end,
+              },
+              pagination: {
+                page: input.page,
+                sortField: input.sortField,
+                sortOrder: input.sortOrder,
+              },
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      logger.error('Happiness Ratings API error', { error });
+      
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: 'Failed to fetch Happiness ratings',
+              message: error instanceof Error ? error.message : String(error),
+              troubleshooting: [
+                'Verify your Help Scout plan includes Reports API access (Plus/Pro required)',
+                'Check if your OAuth token has Reports permissions',
+                'Ensure the date range is valid (start < end)',
+                'Happiness ratings must be enabled in your account settings',
+                'Note: rating values are "great", "ok", "not-good" (not "okay" or "bad")'
+              ],
+              requestedFilters: {
+                start: input.start,
+                end: input.end,
+                mailboxes: input.mailboxes,
                 tags: input.tags,
                 types: input.types,
                 rating: input.rating,
