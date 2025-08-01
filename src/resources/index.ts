@@ -2,13 +2,17 @@ import { Resource } from '@modelcontextprotocol/sdk/types.js';
 import { helpScoutClient, PaginatedResponse } from '../utils/helpscout-client.js';
 import { Inbox, Conversation, Thread, ServerTime } from '../schema/types.js';
 import { logger } from '../utils/logger.js';
+import { docsResourceHandler } from './docs-resources.js';
 
 export class ResourceHandler {
   async handleResource(uri: string): Promise<Resource> {
     const url = new URL(uri);
     const protocol = url.protocol.slice(0, -1); // Remove trailing colon
     
-    if (protocol !== 'helpscout') {
+    if (protocol === 'helpscout-docs') {
+      // Delegate to Docs resource handler
+      return docsResourceHandler.handleDocsResource(uri);
+    } else if (protocol !== 'helpscout') {
       throw new Error(`Unsupported protocol: ${protocol}`);
     }
 
@@ -142,7 +146,7 @@ export class ResourceHandler {
   }
 
   async listResources(): Promise<Resource[]> {
-    return [
+    const conversationResources = [
       {
         uri: 'helpscout://inboxes',
         name: 'Help Scout Inboxes',
@@ -168,6 +172,12 @@ export class ResourceHandler {
         mimeType: 'application/json',
       },
     ];
+
+    // Get Docs resources
+    const docsResources = await docsResourceHandler.listDocsResources();
+
+    // Combine all resources
+    return [...conversationResources, ...docsResources];
   }
 }
 

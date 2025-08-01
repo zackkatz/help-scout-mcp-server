@@ -2,8 +2,9 @@ import { Tool, CallToolRequest, CallToolResult } from '@modelcontextprotocol/sdk
 import { PaginatedResponse, helpScoutClient } from '../utils/helpscout-client.js';
 import { createMcpToolError } from '../utils/mcp-errors.js';
 import { HelpScoutAPIConstraints, ToolCallContext } from '../utils/api-constraints.js';
-import { logger } from '../utils/logger.js';
-import { config } from '../utils/config.js';
+import { Injectable, ServiceContainer } from '../utils/service-container.js';
+import { DocsToolHandler } from './docs-tools.js';
+import { ReportsToolHandler } from './reports-tools.js';
 import { z } from 'zod';
 
 /**
@@ -15,26 +16,26 @@ const TOOL_CONSTANTS = {
   MAX_PAGE_SIZE: 100,
   MAX_THREAD_SIZE: 200,
   DEFAULT_THREAD_SIZE: 200,
-  
+
   // Search limits
   MAX_SEARCH_TERMS: 10,
   DEFAULT_TIMEFRAME_DAYS: 60,
   DEFAULT_LIMIT_PER_STATUS: 25,
-  
+
   // Sort configuration
   DEFAULT_SORT_FIELD: 'createdAt',
   DEFAULT_SORT_ORDER: 'desc',
-  
+
   // Cache and performance
   MAX_CONVERSATION_ID_LENGTH: 20,
-  
+
   // Search locations
   SEARCH_LOCATIONS: {
     BODY: 'body',
-    SUBJECT: 'subject', 
+    SUBJECT: 'subject',
     BOTH: 'both'
   } as const,
-  
+
   // Conversation statuses
   STATUSES: {
     ACTIVE: 'active',
@@ -59,9 +60,15 @@ import {
 export class ToolHandler {
   private callHistory: string[] = [];
   private currentUserQuery?: string;
+  private docsToolHandler: DocsToolHandler;
+  private reportsToolHandler: ReportsToolHandler;
 
-  constructor() {
-    // Direct imports, no DI needed
+  constructor(container?: ServiceContainer) {
+    super(container);
+    // Initialize DocsToolHandler with the same container
+    this.docsToolHandler = new DocsToolHandler(container);
+    // Initialize ReportsToolHandler with the same container
+    this.reportsToolHandler = new ReportsToolHandler(container);
   }
 
   /**
@@ -72,12 +79,12 @@ export class ToolHandler {
   }
 
   async listTools(): Promise<Tool[]> {
-    return [
+    const conversationTools = [
       {
         name: 'searchInboxes',
         description: 'STEP 1: Always use this FIRST when searching conversations. Lists all available inboxes or filters by name. CRITICAL: When a user mentions an inbox by name (e.g., "support inbox", "sales mailbox"), you MUST call this tool first to get the inbox ID before searching conversations.',
         inputSchema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             query: {
               type: 'string',
@@ -102,7 +109,7 @@ export class ToolHandler {
         name: 'searchConversations',
         description: 'STEP 2: Search conversations after obtaining inbox ID. WARNING: Always get inboxId from searchInboxes first if user mentions an inbox name. IMPORTANT: Specify status (active/pending/closed/spam) for better results, or use comprehensiveConversationSearch for multi-status searching. NOTE: Can be used WITHOUT query parameter to list ALL conversations matching other filters (ideal for "show recent tickets" requests).',
         inputSchema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             query: {
               type: 'string',
@@ -166,7 +173,7 @@ export class ToolHandler {
         name: 'getConversationSummary',
         description: 'Get conversation summary with first customer message and latest staff reply',
         inputSchema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             conversationId: {
               type: 'string',
@@ -180,7 +187,7 @@ export class ToolHandler {
         name: 'getThreads',
         description: 'Get all thread messages for a conversation',
         inputSchema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             conversationId: {
               type: 'string',
@@ -205,7 +212,7 @@ export class ToolHandler {
         name: 'getServerTime',
         description: 'Get current server time for time-relative searches',
         inputSchema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {},
         },
       },
@@ -213,7 +220,7 @@ export class ToolHandler {
         name: 'listAllInboxes',
         description: 'QUICK HELPER: Lists ALL available inboxes with their IDs. This is equivalent to searchInboxes with empty query but more explicit. Use this when you need to see all inboxes or when starting any inbox-specific search.',
         inputSchema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             limit: {
               type: 'number',
@@ -229,7 +236,7 @@ export class ToolHandler {
         name: 'advancedConversationSearch',
         description: 'Advanced conversation search with complex boolean queries and customer organization support',
         inputSchema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             contentTerms: {
               type: 'array',
@@ -287,7 +294,7 @@ export class ToolHandler {
         name: 'comprehensiveConversationSearch',
         description: 'CONTENT-BASED SEARCH ONLY: Requires actual search terms to find specific conversations by content. NOT for listing all recent conversations. Use searchConversations (without query) for listing. Searches across multiple statuses simultaneously. WORKFLOW: 1) If user mentions an inbox name, call searchInboxes FIRST to get the ID. 2) Then use this tool with actual search terms.',
         inputSchema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             searchTerms: {
               type: 'array',
@@ -345,6 +352,15 @@ export class ToolHandler {
         },
       },
     ];
+
+    // Get Docs tools from the Docs handler
+    const docsTools = await this.docsToolHandler.listDocsTools();
+
+    // Get Reports tools from the Reports handler
+    const reportsTools = await this.reportsToolHandler.listReportsTools();
+
+    // Combine conversation tools, docs tools, and reports tools
+    return [...conversationTools, ...docsTools, ...reportsTools];
   }
 
   async callTool(request: CallToolRequest): Promise<CallToolResult> {
@@ -352,7 +368,7 @@ export class ToolHandler {
     const startTime = Date.now();
 
     // Using direct import
-    
+
     logger.info('Tool call started', {
       requestId,
       toolName: request.params.name,
@@ -368,20 +384,20 @@ export class ToolHandler {
     };
 
     const validation = HelpScoutAPIConstraints.validateToolCall(validationContext);
-    
+
     if (!validation.isValid) {
       const errorDetails = {
         errors: validation.errors,
         suggestions: validation.suggestions,
         requiredPrerequisites: validation.requiredPrerequisites
       };
-      
+
       logger.warn('Tool call validation failed', {
         requestId,
         toolName: request.params.name,
         validation: errorDetails
       });
-      
+
       // Return helpful error with API constraint guidance
       return {
         content: [{
@@ -402,46 +418,63 @@ export class ToolHandler {
     try {
       let result: CallToolResult;
 
-      switch (request.params.name) {
-        case 'searchInboxes':
-          result = await this.searchInboxes(request.params.arguments || {});
-          break;
-        case 'searchConversations':
-          result = await this.searchConversations(request.params.arguments || {});
-          break;
-        case 'getConversationSummary':
-          result = await this.getConversationSummary(request.params.arguments || {});
-          break;
-        case 'getThreads':
-          result = await this.getThreads(request.params.arguments || {});
-          break;
-        case 'getServerTime':
-          result = await this.getServerTime();
-          break;
-        case 'listAllInboxes':
-          result = await this.listAllInboxes(request.params.arguments || {});
-          break;
-        case 'advancedConversationSearch':
-          result = await this.advancedConversationSearch(request.params.arguments || {});
-          break;
-        case 'comprehensiveConversationSearch':
-          result = await this.comprehensiveConversationSearch(request.params.arguments || {});
-          break;
-        default:
-          throw new Error(`Unknown tool: ${request.params.name}`);
+      // Check if this is a Docs tool
+      const docsTools = await this.docsToolHandler.listDocsTools();
+      const isDocsTool = docsTools.some(tool => tool.name === request.params.name);
+
+      // Check if this is a Reports tool
+      const reportsTools = await this.reportsToolHandler.listReportsTools();
+      const isReportsTool = reportsTools.some(tool => tool.name === request.params.name);
+
+      if (isDocsTool) {
+        // Delegate to Docs tool handler
+        result = await this.docsToolHandler.callDocsTool(request);
+      } else if (isReportsTool) {
+        // Delegate to Reports tool handler
+        result = await this.reportsToolHandler.callReportsTool(request);
+      } else {
+        // Handle conversation tools
+        switch (request.params.name) {
+          case 'searchInboxes':
+            result = await this.searchInboxes(request.params.arguments || {});
+            break;
+          case 'searchConversations':
+            result = await this.searchConversations(request.params.arguments || {});
+            break;
+          case 'getConversationSummary':
+            result = await this.getConversationSummary(request.params.arguments || {});
+            break;
+          case 'getThreads':
+            result = await this.getThreads(request.params.arguments || {});
+            break;
+          case 'getServerTime':
+            result = await this.getServerTime();
+            break;
+          case 'listAllInboxes':
+            result = await this.listAllInboxes(request.params.arguments || {});
+            break;
+          case 'advancedConversationSearch':
+            result = await this.advancedConversationSearch(request.params.arguments || {});
+            break;
+          case 'comprehensiveConversationSearch':
+            result = await this.comprehensiveConversationSearch(request.params.arguments || {});
+            break;
+          default:
+            throw new Error(`Unknown tool: ${request.params.name}`);
+        }
       }
 
       const duration = Date.now() - startTime;
       // Add to call history for future validation
       this.callHistory.push(request.params.name);
-      
+
       // Enhance result with API constraint guidance
       const guidance = HelpScoutAPIConstraints.generateToolGuidance(
-        request.params.name, 
-        JSON.parse((result.content[0] as any).text), 
+        request.params.name,
+        JSON.parse((result.content[0] as any).text),
         validationContext
       );
-      
+
       if (guidance.length > 0) {
         const originalContent = JSON.parse((result.content[0] as any).text);
         originalContent.apiGuidance = guidance;
@@ -462,7 +495,7 @@ export class ToolHandler {
       return result;
     } catch (error) {
       const duration = Date.now() - startTime;
-      
+
       return createMcpToolError(error, {
         toolName: request.params.name,
         requestId,
@@ -474,14 +507,14 @@ export class ToolHandler {
   private async searchInboxes(args: unknown): Promise<CallToolResult> {
     const input = SearchInboxesInputSchema.parse(args);
     // Using direct import
-    
+
     const response = await helpScoutClient.get<PaginatedResponse<Inbox>>('/mailboxes', {
       page: 1,
       size: input.limit,
     });
 
     const inboxes = response._embedded?.mailboxes || [];
-    const filteredInboxes = inboxes.filter(inbox => 
+    const filteredInboxes = inboxes.filter(inbox =>
       inbox.name.toLowerCase().includes(input.query.toLowerCase())
     );
 
@@ -500,11 +533,11 @@ export class ToolHandler {
             query: input.query,
             totalFound: filteredInboxes.length,
             totalAvailable: inboxes.length,
-            usage: filteredInboxes.length > 0 ? 
-              'NEXT STEP: Use the "id" field from these results in your conversation search tools (comprehensiveConversationSearch or searchConversations)' : 
+            usage: filteredInboxes.length > 0 ?
+              'NEXT STEP: Use the "id" field from these results in your conversation search tools (comprehensiveConversationSearch or searchConversations)' :
               'No inboxes matched your query. Try a different search term or use empty string "" to list all inboxes.',
-            example: filteredInboxes.length > 0 ? 
-              `comprehensiveConversationSearch({ searchTerms: ["your search"], inboxId: "${filteredInboxes[0].id}" })` : 
+            example: filteredInboxes.length > 0 ?
+              `comprehensiveConversationSearch({ searchTerms: ["your search"], inboxId: "${filteredInboxes[0].id}" })` :
               null,
           }, null, 2),
         },
@@ -515,7 +548,7 @@ export class ToolHandler {
   private async searchConversations(args: unknown): Promise<CallToolResult> {
     const input = SearchConversationsInputSchema.parse(args);
     // Using direct imports
-    
+
     const queryParams: Record<string, unknown> = {
       page: 1,
       size: input.limit,
@@ -545,7 +578,7 @@ export class ToolHandler {
     }
 
     const response = await helpScoutClient.get<PaginatedResponse<Conversation>>('/conversations', queryParams);
-    
+
     let conversations = response._embedded?.conversations || [];
 
     // Apply additional filtering
@@ -598,25 +631,25 @@ export class ToolHandler {
   private async getConversationSummary(args: unknown): Promise<CallToolResult> {
     const input = GetConversationSummaryInputSchema.parse(args);
     // Using direct imports
-    
+
     // Get conversation details
     const conversation = await helpScoutClient.get<Conversation>(`/conversations/${input.conversationId}`);
-    
+
     // Get threads to find first customer message and latest staff reply
     const threadsResponse = await helpScoutClient.get<PaginatedResponse<Thread>>(
       `/conversations/${input.conversationId}/threads`,
       { page: 1, size: 50 }
     );
-    
+
     const threads = threadsResponse._embedded?.threads || [];
     const customerThreads = threads.filter(t => t.type === 'customer');
     const staffThreads = threads.filter(t => t.type === 'message' && t.createdBy);
-    
-    const firstCustomerMessage = customerThreads.sort((a, b) => 
+
+    const firstCustomerMessage = customerThreads.sort((a, b) =>
       new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     )[0];
-    
-    const latestStaffReply = staffThreads.sort((a, b) => 
+
+    const latestStaffReply = staffThreads.sort((a, b) =>
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )[0];
 
@@ -658,7 +691,7 @@ export class ToolHandler {
   private async getThreads(args: unknown): Promise<CallToolResult> {
     const input = GetThreadsInputSchema.parse(args);
     // Using direct imports
-    
+
     const response = await helpScoutClient.get<PaginatedResponse<Thread>>(
       `/conversations/${input.conversationId}/threads`,
       {
@@ -668,7 +701,7 @@ export class ToolHandler {
     );
 
     const threads = response._embedded?.threads || [];
-    
+
     // Redact PII if configured
     const processedThreads = threads.map(thread => ({
       ...thread,
@@ -711,7 +744,7 @@ export class ToolHandler {
     const input = args as { limit?: number };
     // Using direct import
     const limit = input.limit || 100;
-    
+
     const response = await helpScoutClient.get<PaginatedResponse<Inbox>>('/mailboxes', {
       page: 1,
       size: limit,
@@ -799,7 +832,7 @@ export class ToolHandler {
     if (input.createdAfter) queryParams.modifiedSince = input.createdAfter;
 
     const response = await helpScoutClient.get<PaginatedResponse<Conversation>>('/conversations', queryParams);
-    
+
     let conversations = response._embedded?.conversations || [];
 
     // Apply additional client-side filtering
@@ -843,11 +876,11 @@ export class ToolHandler {
    */
   private async comprehensiveConversationSearch(args: unknown): Promise<CallToolResult> {
     const input = MultiStatusConversationSearchInputSchema.parse(args);
-    
+
     const searchContext = this.buildComprehensiveSearchContext(input);
     const searchResults = await this.executeMultiStatusSearch(searchContext);
     const summary = this.formatComprehensiveSearchResults(searchResults, searchContext);
-    
+
     return {
       content: [
         {
@@ -864,7 +897,7 @@ export class ToolHandler {
   private buildComprehensiveSearchContext(input: z.infer<typeof MultiStatusConversationSearchInputSchema>) {
     const createdAfter = input.createdAfter || this.calculateTimeRange(input.timeframeDays);
     const searchQuery = this.buildSearchQuery(input.searchTerms, input.searchIn);
-    
+
     return {
       input,
       createdAfter,
@@ -886,23 +919,23 @@ export class ToolHandler {
    */
   private buildSearchQuery(terms: string[], searchIn: string[]): string {
     const queries: string[] = [];
-    
+
     for (const term of terms) {
       const termQueries: string[] = [];
-      
+
       if (searchIn.includes(TOOL_CONSTANTS.SEARCH_LOCATIONS.BODY) || searchIn.includes(TOOL_CONSTANTS.SEARCH_LOCATIONS.BOTH)) {
         termQueries.push(`body:"${term}"`);
       }
-      
+
       if (searchIn.includes(TOOL_CONSTANTS.SEARCH_LOCATIONS.SUBJECT) || searchIn.includes(TOOL_CONSTANTS.SEARCH_LOCATIONS.BOTH)) {
         termQueries.push(`subject:"${term}"`);
       }
-      
+
       if (termQueries.length > 0) {
         queries.push(`(${termQueries.join(' OR ')})`);
       }
     }
-    
+
     return queries.join(' OR ');
   }
 
@@ -939,7 +972,7 @@ export class ToolHandler {
           status,
           error: error instanceof Error ? error.message : String(error),
         });
-        
+
         allResults.push({
           status,
           totalCount: 0,
