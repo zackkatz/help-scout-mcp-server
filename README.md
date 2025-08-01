@@ -93,20 +93,83 @@ npx help-scout-mcp-server
 
 ## Getting Your API Credentials
 
-### 🎯 **Recommended: OAuth2 Client Credentials**
+### 🎯 **Recommended: OAuth2 Client Credentials (Step-by-Step)**
 
-1. Go to **Help Scout** → **My Apps** → **Create Private App**
-2. Fill in app details and select required scopes
-3. Copy your **Client ID** and **Client Secret**
-4. Use in configuration:
-   - `HELPSCOUT_CLIENT_ID=your-client-id`
-   - `HELPSCOUT_CLIENT_SECRET=your-client-secret`
+This method is recommended for production use and provides automatic token refresh.
+
+**Why Client Credentials?** MCP servers are backend applications that run without user interaction. We use the Client Credentials flow (not Authorization Code flow) because:
+- ✅ No browser or user login required
+- ✅ Perfect for server-to-server authentication
+- ✅ Automatic token refresh
+- ✅ Works with Claude Desktop, Continue.dev, etc.
+
+#### Step 1: Create a Private App
+1. Log in to your Help Scout account
+2. Click your profile icon (top right) → **My Apps**
+3. Click **Create My App**
+4. Fill out the form:
+   - **App Name**: e.g., "Help Scout MCP Server"
+   - **Redirection URL**: Not needed for server-side apps (leave blank)
+   - **Description**: Optional description of your integration
+
+#### Step 2: Configure App Permissions
+Select the scopes your app needs:
+- ✅ **Mailbox** - Read conversations, threads, and mailbox data
+- ✅ **Customers** - Access customer information
+- ✅ **Reports** - Access analytics and reporting (Plus/Pro plans only)
+- ✅ **Users** - Read user information
+- ✅ **Webhooks** - If you need webhook functionality
+
+**Note**: Only select the scopes you actually need for security best practices.
+
+#### Step 3: Save and Get Credentials
+1. Click **Create Application**
+2. You'll see your credentials:
+   - **App ID** (this is your Client ID)
+   - **App Secret** (this is your Client Secret)
+3. **⚠️ Important**: Copy these immediately! The App Secret is only shown once.
+
+#### Step 4: Configure the MCP Server
+Set these environment variables:
+```bash
+export HELPSCOUT_CLIENT_ID="your-app-id-here"
+export HELPSCOUT_CLIENT_SECRET="your-app-secret-here"
+```
+
+Or add to your `.env` file:
+```env
+HELPSCOUT_CLIENT_ID=your-app-id-here
+HELPSCOUT_CLIENT_SECRET=your-app-secret-here
+```
+
+#### Step 5: Test Your Configuration
+```bash
+# Test with environment variables
+HELPSCOUT_CLIENT_ID="your-app-id" \
+HELPSCOUT_CLIENT_SECRET="your-app-secret" \
+npx help-scout-mcp-server
+
+# Or if using .env file
+npx help-scout-mcp-server
+```
+
+#### Troubleshooting OAuth Issues
+- **"Unknown URL" for Reports**: Ensure your account has a Plus/Pro plan
+- **Authentication Failed**: Double-check your Client ID and Secret
+- **Missing Scopes**: Go back to My Apps and edit your app's permissions
+- **Token Expired**: The server handles refresh automatically
 
 ### 🔐 **Alternative: Personal Access Token**
 
-1. Go to **Help Scout** → **Your Profile** → **API Keys**
-2. Create a new **Personal Access Token**
-3. Use in configuration: `HELPSCOUT_API_KEY=Bearer your-token-here`
+For quick testing or personal use only. These tokens don't auto-refresh.
+
+1. Go to **Help Scout** → **Your Profile** → **Authentication**
+2. Under **API Keys**, click **Generate an API Key**
+3. Give it a memorable label (e.g., "MCP Server")
+4. Copy the generated token
+5. Use in configuration: `HELPSCOUT_API_KEY=Bearer your-token-here`
+
+**⚠️ Note**: Personal Access Tokens expire and must be manually regenerated.
 
 ### 📚 **For Docs API Access**
 
@@ -447,6 +510,38 @@ curl -X POST https://api.helpscout.net/v2/oauth2/token \
 - Verify inbox permissions with your API credentials
 - Check conversation exists and you have access
 - Try broader search terms or different time ranges
+
+### Reports API "Unknown URL" Errors
+
+If you're getting "Unknown URL" errors when accessing reports:
+
+**1. Verify Your Plan**
+- Reports API requires a **Plus** or **Pro** plan
+- Standard plan users can purchase Reports as an add-on
+- Check your plan: Help Scout → Manage → Account → Billing
+
+**2. Check OAuth App Permissions**
+- Go to **My Apps** → Edit your app
+- Ensure **Reports** scope is selected
+- Save and regenerate credentials if needed
+
+**3. Feature Availability**
+- **Happiness Reports**: Requires happiness ratings to be enabled
+  - Go to: Manage → Company → Email → Happiness Ratings
+- **Chat/Phone Reports**: Only available if these channels are enabled
+- **Docs Reports**: Requires Help Scout Docs to be enabled
+
+**4. API Response Debugging**
+```bash
+# Enable debug logging to see actual API responses
+LOG_LEVEL=debug npx help-scout-mcp-server
+```
+
+**5. Test with Personal Access Token**
+Sometimes OAuth apps have permission issues. Test with a Personal Access Token:
+```bash
+HELPSCOUT_API_KEY="Bearer your-personal-token" npx help-scout-mcp-server
+```
 
 ### Debug Mode
 
