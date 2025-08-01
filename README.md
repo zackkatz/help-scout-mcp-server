@@ -109,7 +109,7 @@ This method is recommended for production use and provides automatic token refre
 3. Click **Create My App**
 4. Fill out the form:
    - **App Name**: e.g., "Help Scout MCP Server"
-   - **Redirection URL**: Not needed for server-side apps (leave blank)
+   - **Redirection URL**: Use `https://example.com` (required field but not used for server apps)
    - **Description**: Optional description of your integration
 
 #### Step 2: Configure App Permissions
