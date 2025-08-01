@@ -1598,9 +1598,9 @@ export class ReportsToolHandler extends Injectable {
         params.viewBy = input.viewBy;
       }
 
-      // The happiness report has two endpoints - use the overall endpoint
-      logger.info('Calling Help Scout Reports API for Happiness report', { endpoint: '/v2/reports/happiness/overall', params });
-      const response = await reportsApiClient.getReport<HappinessReportResponse>('/v2/reports/happiness/overall', params);
+      // The happiness report endpoint
+      logger.info('Calling Help Scout Reports API for Happiness report', { endpoint: '/v2/reports/happiness', params });
+      const response = await reportsApiClient.getReport<HappinessReportResponse>('/v2/reports/happiness', params);
 
       return {
         content: [

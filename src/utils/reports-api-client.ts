@@ -24,9 +24,13 @@ export class ReportsApiClient {
         isUnknownUrl: response === 'Unknown URL'
       });
 
-      // Check for "Unknown URL" response
-      if (response === 'Unknown URL' || (typeof response === 'string' && response.includes('Unknown'))) {
-        throw new Error(`Reports API endpoint not found: ${endpoint}`);
+      // Check for "Unknown URL" response (must check string type first)
+      if (typeof response === 'string') {
+        if (response === 'Unknown URL' || response.includes('Unknown')) {
+          throw new Error(`Reports API endpoint not found: ${endpoint}`);
+        }
+        // If it's any other string, it's an unexpected response
+        throw new Error(`Unexpected string response from Reports API: ${response}`);
       }
 
       // The Reports API wraps responses in a 'report' object
