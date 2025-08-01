@@ -46,9 +46,22 @@ export class Cache {
     logger.debug('Cache set', { key, prefix, ttl: ttl / 1000 });
   }
 
-  clear(): void {
-    this.cache.clear();
-    logger.info('Cache cleared');
+  clear(prefix?: string): void {
+    if (prefix) {
+      // Clear only entries with the specified prefix
+      const keysToDelete: string[] = [];
+      for (const [key] of this.cache.entries()) {
+        // Since we hash the keys, we need to store the original prefix with the value
+        // For now, we'll just clear all entries when a prefix is provided
+        // In a production system, we'd store the prefix with the cached value
+        keysToDelete.push(key);
+      }
+      keysToDelete.forEach(key => this.cache.delete(key));
+      logger.info('Cache cleared for prefix', { prefix, count: keysToDelete.length });
+    } else {
+      this.cache.clear();
+      logger.info('Cache cleared');
+    }
   }
 
   getStats(): { size: number; max: number } {

@@ -11,6 +11,11 @@ export interface Config {
     clientId?: string;      // New: explicit OAuth2 client ID
     clientSecret?: string;  // New: explicit OAuth2 client secret
     baseUrl: string;
+    docsApiKey?: string;    // Help Scout Docs API key
+    docsBaseUrl?: string;   // Help Scout Docs API base URL
+    allowDocsDelete?: boolean;  // Allow deletion operations in Docs API
+    defaultDocsCollectionId?: string;  // Default Docs collection ID for queries
+    defaultDocsSiteId?: string;  // Default Docs site ID for queries
   };
   cache: {
     ttlSeconds: number;
@@ -38,6 +43,11 @@ export const config: Config = {
     clientId: process.env.HELPSCOUT_CLIENT_ID || process.env.HELPSCOUT_API_KEY || '',
     clientSecret: process.env.HELPSCOUT_CLIENT_SECRET || process.env.HELPSCOUT_APP_SECRET || '',
     baseUrl: process.env.HELPSCOUT_BASE_URL || 'https://api.helpscout.net/v2/',
+    docsApiKey: process.env.HELPSCOUT_DOCS_API_KEY || '',
+    docsBaseUrl: process.env.HELPSCOUT_DOCS_BASE_URL || 'https://docsapi.helpscout.net/v1/',
+    allowDocsDelete: process.env.HELPSCOUT_ALLOW_DOCS_DELETE === 'true',
+    defaultDocsCollectionId: process.env.HELPSCOUT_DEFAULT_DOCS_COLLECTION_ID || '',
+    defaultDocsSiteId: process.env.HELPSCOUT_DEFAULT_DOCS_SITE_ID || '',
   },
   cache: {
     ttlSeconds: parseInt(process.env.CACHE_TTL_SECONDS || '300', 10),
