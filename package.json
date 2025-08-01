@@ -50,16 +50,16 @@
   ],
   "author": {
     "name": "Drew Burchfield",
-    "url": "https://github.com/drewburchfield"
+    "url": "https://github.com/zackkatz"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/drewburchfield/help-scout-mcp-server.git"
+    "url": "git+https://github.com/zackkatz/help-scout-mcp-server.git"
   },
-  "homepage": "https://github.com/drewburchfield/help-scout-mcp-server#readme",
+  "homepage": "https://github.com/zackkatz/help-scout-mcp-server#readme",
   "bugs": {
-    "url": "https://github.com/drewburchfield/help-scout-mcp-server/issues"
+    "url": "https://github.com/zackkatz/help-scout-mcp-server/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",
